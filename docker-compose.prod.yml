@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    container_name: url_shortener_app
+    restart: unless-stopped
+    ports:
+      - '3870:3870'
+    env_file:
+      - .env.production
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

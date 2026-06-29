@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migrate:up": "ts-node -P tsconfig.cli.json ./node_modules/typeorm/cli.js migration:run -d src/data-source.ts",
     "migrate:down": "ts-node -P tsconfig.cli.json ./node_modules/typeorm/cli.js migration:revert -d src/data-source.ts",
-    "migrate:make": "ts-node -P tsconfig.cli.json ./node_modules/typeorm/cli.js migration:create"
+    "migrate:make": "bash -c 'while [ \"$1\" = \"--\" ]; do shift; done; ts-node -P tsconfig.cli.json ./node_modules/typeorm/cli.js migration:create \"src/migrations/$1\"' _"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
