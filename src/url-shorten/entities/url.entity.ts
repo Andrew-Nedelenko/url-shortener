@@ -19,6 +19,6 @@ export class Url {
   @Column({ type: 'int', default: 0 })
   visits!: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
