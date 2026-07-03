@@ -6,12 +6,21 @@ import {
   Post,
   Res,
   HttpCode,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { UrlShortenDto } from './dto/url-shorten-dto';
 import { UrlShortenService } from './url-shorten.service';
 
 @Controller('url')
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }),
+)
 export class UrlShortenController {
   constructor(private readonly urlShortenService: UrlShortenService) {}
 
