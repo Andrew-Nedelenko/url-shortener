@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm run build
+
+      - name: E2E tests
+        run: pnpm test:e2e
+
+  trivy-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t url-shortener:${{ github.sha }} .
+
+      - name: Run Trivy filesystem scan
+        id: trivy-fs
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-fs-results.json
+          severity: CRITICAL,HIGH
+        continue-on-error: true
+
+      - name: Run Trivy Docker image scan
+        id: trivy-image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: url-shortener:${{ github.sha }}
+          format: json
+          output: trivy-image-results.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+        continue-on-error: true
+
+      - name: Create issue for filesystem vulnerabilities
+        if: steps.trivy-fs.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('trivy-fs-results.json', 'utf8'));
+            const vulns = [];
+
+            if (results.Results) {
+              for (const result of results.Results) {
+                if (result.Vulnerabilities) {
+                  for (const v of result.Vulnerabilities) {
+                    vulns.push(`- **${v.Severity}**: ${v.VulnerabilityID} in ${v.PkgName} (${v.InstalledVersion}) → ${v.FixedVersion || 'no fix'}: ${v.Title}`);
+                  }
+                }
+              }
+            }
+
+            if (vulns.length > 0) {
+              const body = `## Trivy Filesystem Scan Report\n\n**Date**: ${new Date().toISOString()}\n**Commit**: ${{ github.sha }}\n**Branch**: ${{ github.head_ref }}\n\n### Vulnerabilities Found\n\n${vulns.join('\n')}\n\n---\n*Created by Trivy CI scan*`;
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[Security] Trivy FS scan - ${vulns.length} vulnerabilities found`,
+                body: body,
+                labels: ['security', 'trivy']
+              });
+            }
+
+      - name: Create issue for Docker image vulnerabilities
+        if: steps.trivy-image.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('trivy-image-results.json', 'utf8'));
+            const vulns = [];
+
+            if (results.Results) {
+              for (const result of results.Results) {
+                if (result.Vulnerabilities) {
+                  for (const v of result.Vulnerabilities) {
+                    vulns.push(`- **${v.Severity}**: ${v.VulnerabilityID} in ${v.PkgName} (${v.InstalledVersion}) → ${v.FixedVersion || 'no fix'}: ${v.Title}`);
+                  }
+                }
+              }
+            }
+
+            if (vulns.length > 0) {
+              const body = `## Trivy Docker Image Scan Report\n\n**Date**: ${new Date().toISOString()}\n**Commit**: ${{ github.sha }}\n**Branch**: ${{ github.head_ref }}\n**Image**: url-shortener:${{ github.sha }}\n\n### Vulnerabilities Found\n\n${vulns.join('\n')}\n\n---\n*Created by Trivy CI scan*`;
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[Security] Trivy Image scan - ${vulns.length} vulnerabilities found`,
+                body: body,
+                labels: ['security', 'trivy']
+              });
+            }
+
+      - name: Fail if vulnerabilities found
+        if: steps.trivy-fs.outcome == 'failure' || steps.trivy-image.outcome == 'failure'
+        run: exit 1
